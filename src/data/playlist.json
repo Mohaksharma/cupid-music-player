@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1,
+    "title": "Lovers Rock",
+    "artist": "TV Girl",
+    "video_id": "W9Qn4zzAczI",
+    "art": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/3d/09/0c/3d090c87-f02b-3c3c-cedf-603cc900082f/888174780955_cover.jpg/600x600bb.jpg"
+  },
+  {
+    "id": 2,
+    "title": "Cherry Cola",
+    "artist": "Clairo",
+    "video_id": "BRW3OmyC2_I",
+    "art": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a4/e0/8d/a4e08db1-0d81-e8c4-6fc5-877761b22063/190295484996.jpg/600x600bb.jpg"
+  },
+  {
+    "id": 3,
+    "title": "Pretty When You Cry (Very Long Extended Version)",
+    "artist": "VAST",
+    "video_id": "JdBiNNOzwFc",
+    "art": "https://i.ytimg.com/vi/JdBiNNOzwFc/hqdefault.jpg"
+  },
+  {
+    "id": 4,
+    "title": "Sunday Best",
+    "artist": "Surfaces",
+    "video_id": "0CpxQLNHdwY",
+    "art": "https://i.ytimg.com/vi/0CpxQLNHdwY/hqdefault.jpg"
+  },
+  {
+    "id": 5,
+    "title": "Dreams",
+    "artist": "Fleetwood Mac",
+    "video_id": "Z7V_fO6_FaI",
+    "art": "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/1a/e8/70/1ae870c3-b402-096b-c4c4-8022af5a2ed9/745099189662.jpg/600x600bb.jpg"
+  }
+]

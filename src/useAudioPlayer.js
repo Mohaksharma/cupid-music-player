@@ -12,12 +12,30 @@ export default function useAudioPlayer(tracks, playMode = 'normal', getAudioPath
   const playModeRef = useRef(playMode);
   playModeRef.current = playMode;
   const [trackIndex, setTrackIndex] = useState(0);
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
+  // Bump to force the load-track effect even when trackIndex is unchanged
+  const [loadGeneration, setLoadGeneration] = useState(0);
+  const getAudioPathRef = useRef(getAudioPath);
+  getAudioPathRef.current = getAudioPath;
 
-  // Reset index when the playlist array changes (mirrors useSpotifyPlayer)
+  console.log('[useAudioPlayer] render — trackIndex:', trackIndex, 'tracks.length:', tracks.length, 'loadGen:', loadGeneration);
+
+  // Reset index when the playlist array identity changes (mirrors useSpotifyPlayer)
   const prevTracksRef = useRef(tracks);
   if (prevTracksRef.current !== tracks) {
+    const prevTrackAtIdx = prevTracksRef.current?.[trackIndex];
+    const newTrackAtIdx = tracks[trackIndex];
+    const trackAtIndexChanged = prevTrackAtIdx !== newTrackAtIdx;
+    console.log('[useAudioPlayer] tracks reference changed, prevLen:', prevTracksRef.current?.length, 'newLen:', tracks.length, 'trackAtIndexChanged:', trackAtIndexChanged);
     prevTracksRef.current = tracks;
-    if (trackIndex >= tracks.length) setTrackIndex(0);
+    if (trackIndex >= tracks.length) {
+      console.log('[useAudioPlayer] trackIndex', trackIndex, '>= tracks.length', tracks.length, '— resetting to 0');
+      setTrackIndex(0);
+    } else if (trackAtIndexChanged) {
+      // The track at the current index changed — re-load it
+      setLoadGeneration(g => g + 1);
+    }
   }
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -36,33 +54,73 @@ export default function useAudioPlayer(tracks, playMode = 'normal', getAudioPath
   const audio = audioRef.current;
   audio.volume = muted ? 0 : volume;
 
-  // Load track when index or tracks change
+  // Load track when index, tracks, or loadGeneration change
   useEffect(() => {
-    const t = tracks[trackIndex];
-    if (!t || !t.file) return;
+    const currentTracks = tracksRef.current;
+    const t = currentTracks[trackIndex];
+    console.log('[LOAD-EFFECT] Loading track at index', trackIndex, ':', t?.title || t, '— tracks.length:', currentTracks.length, 'loadGen:', loadGeneration);
+    if (!t) {
+      console.log('[useAudioPlayer] LOAD useEffect — no track at index', trackIndex);
+      return;
+    }
 
     let cancelled = false;
+    const audioEl = audioRef.current;
+    const resolveAudioPath = getAudioPathRef.current;
+
     (async () => {
       let src;
-      if (getAudioPath) {
-        src = await getAudioPath(t.file);
+
+      // Check if this is a YouTube search result (has video_id, no file)
+      if (t.video_id && !t.file) {
+        // Fetch stream URL from YouTube
+        try {
+          console.log('[useAudioPlayer] Fetching YouTube stream for:', t.title, '-', t.artist);
+          src = await window.cupid.getStreamUrl(t.title, t.artist);
+          console.log('[useAudioPlayer] YouTube stream URL:', src ? 'fetched OK' : 'FAILED (null)');
+        } catch (err) {
+          console.error('[useAudioPlayer] Failed to get YouTube stream:', err);
+          return;
+        }
+      } else if (t.file) {
+        // Local file from playlist.json
+        if (resolveAudioPath) {
+          src = await resolveAudioPath(t.file);
+        } else {
+          src = `./${t.file}`;
+        }
+        console.log('[useAudioPlayer] Local file src:', src);
       } else {
-        // Browser/preview fallback — Vite serves audio/ as publicDir
-        src = `./${t.file}`;
+        console.log('[useAudioPlayer] No valid source for track:', t);
+        return; // No valid source
       }
-      if (cancelled || !src) return;
-      audio.src = src;
-      audio.load();
+
+      if (cancelled) {
+        console.log('[useAudioPlayer] LOAD effect cancelled after await, skipping src assignment');
+        return;
+      }
+      if (!src) {
+        console.log('[useAudioPlayer] src is falsy, skipping');
+        return;
+      }
+      console.log('[useAudioPlayer] Setting audio.src, isPlaying:', isPlayingRef.current, 'oldSrc:', audioEl.src?.slice(-40), 'newSrc:', src?.slice(-40));
+      audioEl.pause();
+      audioEl.src = src;
+      audioEl.load();
       setProgress(0);
       setCurrentTime(0);
       setDuration(0);
       if (isPlayingRef.current) {
-        audio.play().catch(() => {});
+        audioEl.play().catch((e) => console.error('[useAudioPlayer] play() failed:', e));
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [trackIndex, tracks]);
+    return () => {
+      console.log('[useAudioPlayer] LOAD useEffect cleanup — cancelling for trackIndex:', trackIndex);
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackIndex, loadGeneration]);
 
   // Time update listener
   useEffect(() => {
@@ -84,26 +142,40 @@ export default function useAudioPlayer(tracks, playMode = 'normal', getAudioPath
         return;
       }
       setTrackIndex((prev) => {
-        if (tracks.length === 0) return 0;
+        const len = tracksRef.current.length;
+        if (len === 0) return 0;
+        let nextIdx;
         if (playModeRef.current === 'shuffle') {
-          let next;
-          do { next = Math.floor(Math.random() * tracks.length); } while (next === prev && tracks.length > 1);
-          return next;
+          do { nextIdx = Math.floor(Math.random() * len); } while (nextIdx === prev && len > 1);
+        } else {
+          nextIdx = (prev + 1) % len;
         }
-        return (prev + 1) % tracks.length;
+        // Single-track playlist: index won't change, bump generation to reload
+        if (nextIdx === prev) {
+          setTimeout(() => setLoadGeneration(g => g + 1), 0);
+        }
+        return nextIdx;
       });
+      setIsPlaying(true);
+    };
+
+    const onError = (e) => {
+      console.error('[useAudioPlayer] audio error event:', audio.error?.code, audio.error?.message, 'src:', audio.src);
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
     };
-  }, [tracks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const play = useCallback(() => {
     audio.play().catch(() => {});
@@ -121,27 +193,58 @@ export default function useAudioPlayer(tracks, playMode = 'normal', getAudioPath
   }, [isPlaying, play, pause]);
 
   const next = useCallback(() => {
+    const len = tracksRef.current.length;
+    console.log('[NEXT-BUTTON] Total tracks:', len, 'Track titles:', tracksRef.current.map(t => t.title));
+    if (len === 0) return;
+
     setTrackIndex((prev) => {
-      if (tracks.length === 0) return 0;
-      if (playModeRef.current === 'shuffle' && tracks.length > 1) {
-        let n;
-        do { n = Math.floor(Math.random() * tracks.length); } while (n === prev);
-        return n;
+      let nextIdx;
+      if (playModeRef.current === 'shuffle' && len > 1) {
+        do { nextIdx = Math.floor(Math.random() * len); } while (nextIdx === prev);
+      } else {
+        nextIdx = (prev + 1) % len;
       }
-      return (prev + 1) % tracks.length;
+      console.log('[NEXT-BUTTON] Current trackIndex:', prev, 'Total tracks:', len, 'Next index will be:', nextIdx);
+
+      // If index doesn't change (e.g. single-song playlist), bump generation
+      // to force the load effect to re-run
+      if (nextIdx === prev) {
+        console.log('[useAudioPlayer] next() — same index, bumping loadGeneration');
+        // Schedule after this setState batch completes
+        setTimeout(() => setLoadGeneration(g => g + 1), 0);
+      }
+      return nextIdx;
     });
-  }, [tracks]);
+    setIsPlaying(true);
+  }, []);
 
   const prev = useCallback(() => {
+    setIsPlaying(true);
     if (audio.currentTime > 3) {
       audio.currentTime = 0;
+      audio.play().catch(() => {});
     } else {
       setTrackIndex((p) => {
-        if (tracks.length === 0) return 0;
-        return (p - 1 + tracks.length) % tracks.length;
+        const len = tracksRef.current.length;
+        if (len === 0) return 0;
+        return (p - 1 + len) % len;
       });
     }
-  }, [tracks]);
+  }, []);
+
+  const playTrackAt = useCallback((index) => {
+    const len = tracksRef.current.length;
+    if (len === 0) return;
+    const idx = Math.max(0, Math.min(index, len - 1));
+    setTrackIndex((prev) => {
+      if (prev === idx) {
+        // Same index — bump generation to force reload
+        setTimeout(() => setLoadGeneration(g => g + 1), 0);
+      }
+      return idx;
+    });
+    setIsPlaying(true);
+  }, []);
 
   const seek = useCallback((fraction) => {
     if (audio.duration) {
@@ -179,5 +282,6 @@ export default function useAudioPlayer(tracks, playMode = 'normal', getAudioPath
     setVolume,
     muted,
     toggleMute,
+    playTrackAt,
   };
 }

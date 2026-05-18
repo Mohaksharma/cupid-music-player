@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('cupid', {
   getLocalPlaylist: () => ipcRenderer.invoke('get-local-playlist'),
   getLocalAudioPath: (filename) => ipcRenderer.invoke('get-local-audio-path', filename),
   openMusicFolder: () => ipcRenderer.invoke('open-music-folder'),
+  searchYouTubeMusic: (query) => ipcRenderer.invoke('search-youtube-music', query),
 });

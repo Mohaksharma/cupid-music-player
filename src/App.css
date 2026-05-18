@@ -113,6 +113,11 @@
   transform-origin: calc(310 / 512 * 100%) calc(57 / 512 * 100%);
 }
 
+.btn-search {
+  left: calc((305 - 140) / 306 * 100vw);
+  top: calc((48 - 23) / 306 * 100vw);
+}
+
 .btn-settings {
   left: calc((305 - 110) / 306 * 100vw);
   top: calc((48 - 23) / 306 * 100vw);
@@ -602,4 +607,17 @@
   font-size: calc(9 / 306 * 100vw);
   color: #c44;
   word-break: break-word;
+}
+
+/* Plant icon — resize to ~32x32 and reposition */
+.plant-icon {
+  position: absolute;
+  width: calc(32 / 306 * 100vw);
+  height: calc(32 / 306 * 100vw);
+  left: calc((260 - 110) / 306 * 100vw);
+  top: calc((29 - 23) / 306 * 100vw);
+  image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  z-index: 20;
 }

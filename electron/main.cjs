@@ -138,6 +138,60 @@ async function searchYouTubeMusic(title, artist) {
   return top.id;
 }
 
+async function searchYouTubeMusicDetailed(query) {
+  try {
+    console.log('[youtube-search] Searching YouTube for:', query);
+
+    // Use yt-dlp to search - more reliable than innertube
+    const { stdout, stderr } = await execFileAsync(getYtDlpPath(), [
+      `ytsearch10:"${query}"`,
+      '--no-playlist',
+      '--no-warnings',
+      '-J',
+    ], { timeout: 20000, maxBuffer: 10 * 1024 * 1024 }).catch((err) => {
+      console.error('[youtube-search] yt-dlp error:', err.message);
+      return { stdout: '{}', stderr: err.message };
+    });
+
+    console.log('[youtube-search] yt-dlp response received');
+
+    let data = {};
+    try {
+      data = JSON.parse(stdout);
+    } catch (parseErr) {
+      console.error('[youtube-search] Failed to parse yt-dlp JSON:', parseErr.message);
+      return [];
+    }
+
+    const entries = data.entries || (Array.isArray(data) ? data : []);
+    console.log('[youtube-search] Found entries:', entries.length);
+
+    const results = [];
+    for (const entry of entries.slice(0, 10)) {
+      if (!entry || !entry.id) continue;
+
+      const title = entry.title || 'Unknown';
+      const artist = entry.uploader || entry.channel || 'Unknown Artist';
+      const art = entry.thumbnail || (entry.thumbnails && entry.thumbnails.length > 0 ? entry.thumbnails[entry.thumbnails.length - 1].url : null) || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`;
+
+      console.log(`[youtube-search] Result: "${title}" by "${artist}"`);
+      results.push({
+        id: entry.id,
+        video_id: entry.id,
+        title,
+        artist,
+        art,
+      });
+    }
+
+    console.log('[youtube-search] Parsed results:', results.length);
+    return results;
+  } catch (err) {
+    console.error('[youtube-search] Unexpected error:', err.message);
+    return [];
+  }
+}
+
 async function ytDlpExtract(target) {
   const { stdout } = await execFileAsync(getYtDlpPath(), [
     target,
@@ -505,6 +559,19 @@ ipcMain.handle('open-music-folder', async () => {
   await fs.promises.mkdir(dir, { recursive: true });
   await shell.openPath(dir);
   return dir;
+});
+
+ipcMain.handle('search-youtube-music', async (_e, query) => {
+  try {
+    if (!query || typeof query !== 'string') {
+      return [];
+    }
+    const results = await searchYouTubeMusicDetailed(query);
+    return results;
+  } catch (err) {
+    console.error('[youtube-music-search]', err.message);
+    return [];
+  }
 });
 
 app.whenReady().then(() => {

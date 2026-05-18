@@ -3,6 +3,7 @@ import './App.css';
 import useAudioPlayer from './useAudioPlayer';
 import useSpotifyPlayer from './useSpotifyPlayer';
 import useTheme from './useTheme';
+import { useMusicIntegration } from './useMusicIntegration';
 import { login as spotifyLogin, handleCallback, isLoggedIn as isSpotifyLoggedIn, logout as spotifyLogout } from './spotify/auth.js';
 import { fetchPlaylistTracks as fetchSpotifyTracks, fetchMyPlaylists as fetchSpotifyPlaylists } from './spotify/api.js';
 import { login as appleLogin, logout as appleLogout, isLoggedIn as isAppleLoggedIn, initMusicKit } from './apple/auth.js';
@@ -88,6 +89,9 @@ export default function App() {
   const [showDebug] = useState(false);
   const [localTracks, setLocalTracks] = useState([]);
 
+  // ── Music Integration: Search, List, Playlists ────────────
+  const music = useMusicIntegration(localTracks);
+
   const loadLocalPlaylist = useCallback(async () => {
     if (!window.cupid?.getLocalPlaylist) return;
     try {
@@ -100,7 +104,12 @@ export default function App() {
 
   useEffect(() => { loadLocalPlaylist(); }, [loadLocalPlaylist]);
 
-  const local = useAudioPlayer(localTracks, playMode, window.cupid?.getLocalAudioPath);
+  // Determine which tracks to play: from active playlist or from local files
+  const activePlaylistSongs = music.playlists.find(p => p.id === music.selectedPlaylist)?.songs || [];
+  const tracksToPlay = activePlaylistSongs.length > 0 ? activePlaylistSongs : localTracks;
+  console.log('[APP] tracksToPlay length:', tracksToPlay.length, 'Selected playlist ID:', music.selectedPlaylist, 'Active playlist songs:', activePlaylistSongs.length, 'localTracks:', localTracks.length);
+
+  const local = useAudioPlayer(tracksToPlay, playMode, window.cupid?.getLocalAudioPath);
   const streaming = useSpotifyPlayer(streamTracks, playMode);
   const player = source === 'streaming' ? streaming : local;
 
@@ -118,6 +127,7 @@ export default function App() {
     setVolume,
     muted,
     toggleMute,
+    playTrackAt,
   } = player;
 
   const cyclePlayMode = useCallback(() => {
@@ -193,6 +203,7 @@ export default function App() {
   const [swapping, setSwapping] = useState(false);
   const [needleLifted, setNeedleLifted] = useState(false);
   const [starHovered, setStarHovered] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [hoverProgress, setHoverProgress] = useState(null);
@@ -331,7 +342,7 @@ export default function App() {
       <img src={assets.frameNoBg} className="layer frame-overlay" alt="" draggable={false} />
 
       {/* Decorative */}
-      <img src={assets.plant} className="layer layer-ui" alt="" draggable={false} />
+      <img src={assets.plant} className="plant-icon" alt="" draggable={false} />
 
       {/* Progress bar layers */}
       <img src={assets.progressBar} className="layer layer-ui" alt="" draggable={false} />
@@ -381,6 +392,9 @@ export default function App() {
       <img src={assets.minimizerButton} className="layer layer-ui" alt="" draggable={false} />
       <img src={assets.windowButton} className="layer layer-ui" alt="" draggable={false} />
       <img src={assets.exitButton} className="layer layer-ui" alt="" draggable={false} />
+
+      {/* Search button layer */}
+      <img src={assets.searchButton} className="layer layer-ui" alt="" draggable={false} />
 
       {/* Settings button layer */}
       <img src={assets.settings} className="layer layer-ui settings-layer" alt="" draggable={false} />
@@ -456,7 +470,7 @@ export default function App() {
       {/* Playback control click targets */}
       <div className="btn btn-prev" onClick={prev} />
       <div className="btn btn-play" onClick={togglePlay} />
-      <div className="btn btn-next" onClick={next} />
+      <div className="btn btn-next" onClick={() => { console.log('[NEXT-BUTTON] Clicked — source:', source, 'tracksToPlay.length:', tracksToPlay.length, 'titles:', tracksToPlay.map(t => t.title)); next(); }} />
 
       {/* Volume bar layers — shown on hover or drag */}
       {(volumeHovered || volumeDragging) && (
@@ -507,6 +521,9 @@ export default function App() {
       <div className="btn btn-window" onClick={() => window.cupid?.maximize()} />
       <div className="btn btn-exit" onClick={() => window.cupid?.close()} />
 
+      {/* Search button click target */}
+      <div className="btn btn-search" onClick={() => setShowSearch((v) => !v)} />
+
       {/* Settings button */}
       <div className="btn btn-settings" onClick={() => setShowSettings((v) => !v)} />
 
@@ -522,10 +539,90 @@ export default function App() {
         </>
       )}
 
+
       {/* Settings panel */}
       {showSettings && (
         <div className="settings-panel">
           <div className="settings-panel-inner">
+            {/* ═══════════════════════════════════════════════════════════ */}
+            {/* PLAYLISTS */}
+            {/* ═══════════════════════════════════════════════════════════ */}
+            <div className="settings-label">❤️ playlists</div>
+            <div style={{ marginBottom: '8px' }}>
+              {music.playlists.map(p => (
+                <div
+                  key={p.id}
+                  style={{
+                    padding: '6px',
+                    marginBottom: '4px',
+                    background: '#f9f9f9',
+                    borderRadius: '3px',
+                    border: p.id === music.selectedPlaylist ? '2px solid #ff69b4' : '1px solid #eee',
+                    fontSize: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 'bold' }}>
+                        {p.name}
+                      </div>
+                      <div style={{ fontSize: '9px', opacity: 0.7 }}>
+                        {p.songs.length} songs
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => music.setSelectedPlaylist(p.id)}
+                      style={{
+                        padding: '3px 6px',
+                        fontSize: '9px',
+                        cursor: 'pointer',
+                        background: p.id === music.selectedPlaylist ? '#ff69b4' : '#e0e0e0',
+                        color: p.id === music.selectedPlaylist ? 'white' : 'black',
+                        border: 'none',
+                        borderRadius: '2px',
+                      }}
+                    >
+                      {p.id === music.selectedPlaylist ? '✓' : 'select'}
+                    </button>
+                  </div>
+
+                  {p.id === music.selectedPlaylist && p.songs.length > 0 && (
+                    <div style={{ marginTop: '4px', maxHeight: '80px', overflowY: 'auto', fontSize: '9px' }}>
+                      {p.songs.map((song, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            padding: '2px 4px',
+                            borderBottom: '1px solid #ddd',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <span>{song.title}</span>
+                          <button
+                            onClick={() => music.removeFromPlaylist(song.title, p.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#999',
+                              cursor: 'pointer',
+                              fontSize: '9px',
+                              padding: '0 2px',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════ */}
+            {/* THEME */}
+            {/* ═══════════════════════════════════════════════════════════ */}
             <div className="settings-label">theme</div>
             <div className="settings-theme-row">
               <button
@@ -541,119 +638,114 @@ export default function App() {
                 blue
               </button>
             </div>
-            <div className="settings-label">music</div>
-            <div className="settings-theme-row">
-              <button
-                className={`settings-theme-btn ${musicService === 'spotify' ? 'active' : ''}`}
-                onClick={() => setMusicService('spotify')}
-              >
-                spotify
-              </button>
-              <button
-                className={`settings-theme-btn ${musicService === 'apple' ? 'active' : ''}`}
-                onClick={() => setMusicService('apple')}
-              >
-                apple
-              </button>
-              <button
-                className={`settings-theme-btn ${musicService === 'local' ? 'active' : ''}`}
-                onClick={() => { setMusicService('local'); setSource('local'); }}
-              >
-                local
-              </button>
-            </div>
-
-            {musicService === 'local' && (
-              <button
-                className="settings-theme-btn"
-                onClick={loadLocalPlaylist}
-              >
-                reload
-              </button>
-            )}
-
-            {musicService === 'spotify' && (
-              !spotifyConnected ? (
-                <button className="settings-theme-btn" onClick={() => spotifyLogin()}>
-                  log in
-                </button>
-              ) : (
-                <>
-                  <div className="settings-playlist-list">
-                    {loadingPlaylists ? (
-                      <div className="settings-label">loading...</div>
-                    ) : (
-                      spotifyPlaylists.map((p) => (
-                        <button
-                          key={p.id}
-                          className={`settings-playlist-item ${loadingPlaylist ? 'disabled' : ''}`}
-                          onClick={() => loadPlaylist(p.id, 'spotify')}
-                          disabled={loadingPlaylist}
-                        >
-                          {p.name}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                  <div className="settings-theme-row">
-                    <button className="settings-theme-btn" onClick={() => {
-                      spotifyLogout();
-                      setSpotifyConnected(false);
-                      setSpotifyPlaylists([]);
-                      if (source === 'streaming') setSource('local');
-                    }}>
-                      logout
-                    </button>
-                  </div>
-                </>
-              )
-            )}
-
-            {musicService === 'apple' && (
-              !appleConnected ? (
-                <button className="settings-theme-btn" onClick={async () => {
-                  try {
-                    await appleLogin();
-                    setAppleConnected(true);
-                    loadApplePlaylists();
-                  } catch (err) {
-                    setSettingsError(err.message);
-                  }
-                }}>
-                  log in
-                </button>
-              ) : (
-                <>
-                  <div className="settings-playlist-list">
-                    {applePlaylists.map((p) => (
-                      <button
-                        key={p.id}
-                        className={`settings-playlist-item ${loadingPlaylist ? 'disabled' : ''}`}
-                        onClick={() => loadPlaylist(p.id, 'apple')}
-                        disabled={loadingPlaylist}
-                      >
-                        {p.name}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="settings-theme-row">
-                    <button className="settings-theme-btn" onClick={() => {
-                      appleLogout();
-                      setAppleConnected(false);
-                      setApplePlaylists([]);
-                      if (source === 'streaming') setSource('local');
-                    }}>
-                      logout
-                    </button>
-                  </div>
-                </>
-              )
-            )}
 
             {settingsError && <div className="settings-error">{settingsError}</div>}
           </div>
         </div>
       )}
+
+      {/* SEARCH PANEL */}
+      {showSearch && (
+        <div className="settings-panel">
+          <div className="settings-panel-inner">
+            <div className="settings-label">🔍 search</div>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
+              <input
+                type="text"
+                autoFocus
+                placeholder="search youtube..."
+                value={music.searchQuery}
+                onChange={(e) => music.setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && music.searchQuery.trim()) {
+                    music.search(music.searchQuery);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px',
+                  borderRadius: '3px',
+                  border: '1px solid #ccc',
+                  fontSize: '11px',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (music.searchQuery.trim()) {
+                    music.search(music.searchQuery);
+                  }
+                }}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '3px',
+                  border: '1px solid #aaa',
+                  background: '#e0e0e0',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  imageRendering: 'pixelated',
+                }}
+              >
+                🔍
+              </button>
+            </div>
+
+            {music.searchLoading && (
+              <div style={{ color: '#999', fontSize: '10px', marginBottom: '8px' }}>
+                searching...
+              </div>
+            )}
+
+            {Array.isArray(music.searchResults) && music.searchResults.length > 0 && !music.searchLoading && (
+              <div style={{ marginBottom: '8px' }}>
+                {music.searchResults.map((song, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => {
+                      // Add song to active playlist
+                      music.addToPlaylist(song, music.selectedPlaylist);
+                      // Compute the index of the newly added song
+                      // (it will be appended at the end of the playlist's songs)
+                      const currentPlaylist = music.playlists.find(p => p.id === music.selectedPlaylist);
+                      const newIndex = currentPlaylist ? currentPlaylist.songs.length : 0;
+                      // Use setTimeout to let React re-render with the updated tracksToPlay
+                      setTimeout(() => {
+                        if (playTrackAt) playTrackAt(newIndex);
+                      }, 0);
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '6px',
+                      marginBottom: '4px',
+                      background: '#f5f5f5',
+                      border: '1px solid #ddd',
+                      borderRadius: '3px',
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                      color: '#333',
+                    }}
+                  >
+                    <div style={{ fontWeight: 'bold', color: '#222' }}>
+                      {song.title}
+                    </div>
+                    <div style={{ fontSize: '9px', opacity: 0.7, color: '#555' }}>
+                      {song.artist}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {music.searchQuery && (!Array.isArray(music.searchResults) || music.searchResults.length === 0) && !music.searchLoading && (
+              <div style={{ color: '#999', fontSize: '10px', marginBottom: '8px' }}>
+                No songs found
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

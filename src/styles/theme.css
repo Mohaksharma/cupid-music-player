@@ -1,0 +1,57 @@
+/* Theme CSS Variables - Pink Theme (Default) */
+:root,
+[data-theme='pink'] {
+  --primary-color: #ffb3d9;
+  --primary-dark: #ff99cc;
+  --primary-light: #ffccdd;
+  --accent-color: #ff6bb6;
+  --accent-dark: #ff5ca8;
+  --text-primary: #3a1a5e;
+  --text-secondary: #7a3f5c;
+  --text-tertiary: #8a4f6c;
+  --vinyl-light: #3a1a5e;
+  --vinyl-dark: #1a0a2e;
+  --vinyl-center: #ffb3d9;
+  --header-bg: #ffccdd;
+  --button-bg: white;
+  --button-border: #3a1a5e;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+  --hover-bg: #ffe5f0;
+}
+
+/* Blue Theme */
+[data-theme='blue'] {
+  --primary-color: #a3d5ff;
+  --primary-dark: #7fc7ff;
+  --primary-light: #c7e9ff;
+  --accent-color: #1e88e5;
+  --accent-dark: #1565c0;
+  --text-primary: #0d47a1;
+  --text-secondary: #1976d2;
+  --text-tertiary: #2196f3;
+  --vinyl-light: #0d47a1;
+  --vinyl-dark: #051b3d;
+  --vinyl-center: #a3d5ff;
+  --header-bg: #c7e9ff;
+  --button-bg: white;
+  --button-border: #0d47a1;
+  --shadow-color: rgba(0, 0, 0, 0.4);
+  --hover-bg: #e3f2fd;
+}
+
+/* Apply theme colors globally with smooth transitions */
+body {
+  background: linear-gradient(135deg, var(--vinyl-dark) 0%, var(--vinyl-light) 100%);
+  transition: background 0.4s ease;
+}
+
+/* Global color transitions */
+* {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+/* Longer transition for gradients and complex backgrounds */
+.player-frame {
+  transition: background 0.4s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
