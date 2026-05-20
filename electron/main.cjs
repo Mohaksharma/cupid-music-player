@@ -95,9 +95,30 @@ function persistVideoIdCache() {
 }
 
 function getYtDlpPath() {
+  // In packaged app, yt-dlp binary lives in extraResources
+  const bundledPath = path.join(process.resourcesPath, 'yt-dlp-bin', 'yt-dlp');
+  if (!isDev && fs.existsSync(bundledPath)) {
+    // Ensure execute permission (electron-builder may strip it)
+    try {
+      const stats = fs.statSync(bundledPath);
+      if ((stats.mode & 0o111) === 0) {
+        fs.chmodSync(bundledPath, 0o755);
+        console.log('[yt-dlp] Fixed execute permission on bundled binary');
+      }
+    } catch (e) {
+      console.warn('[yt-dlp] Could not check/fix permissions:', e.message);
+    }
+    console.log('[getYtDlpPath] Resolved to:', bundledPath);
+    return bundledPath;
+  }
+
+  // Dev / fallback: resolve from node_modules
   try {
-    return require('yt-dlp-exec/src/constants').YOUTUBE_DL_PATH || 'yt-dlp';
+    const resolved = require('yt-dlp-exec/src/constants').YOUTUBE_DL_PATH || 'yt-dlp';
+    console.log('[getYtDlpPath] Resolved to:', resolved);
+    return resolved;
   } catch {
+    console.log('[getYtDlpPath] Resolved to: yt-dlp (fallback)');
     return 'yt-dlp';
   }
 }
@@ -140,16 +161,27 @@ async function searchYouTubeMusic(title, artist) {
 
 async function searchYouTubeMusicDetailed(query) {
   try {
+    const ytDlpPath = getYtDlpPath();
     console.log('[youtube-search] Searching YouTube for:', query);
+    console.log('[youtube-search] yt-dlp path:', ytDlpPath);
+    console.log('[youtube-search] yt-dlp exists:', fs.existsSync(ytDlpPath));
+    try {
+      const stats = fs.statSync(ytDlpPath);
+      console.log('[youtube-search] yt-dlp executable:', (stats.mode & 0o111) !== 0, 'mode:', '0' + stats.mode.toString(8));
+    } catch (statErr) {
+      console.error('[youtube-search] yt-dlp stat error:', statErr.message);
+    }
 
     // Use yt-dlp to search - more reliable than innertube
-    const { stdout, stderr } = await execFileAsync(getYtDlpPath(), [
+    const { stdout, stderr } = await execFileAsync(ytDlpPath, [
       `ytsearch10:"${query}"`,
       '--no-playlist',
       '--no-warnings',
       '-J',
     ], { timeout: 20000, maxBuffer: 10 * 1024 * 1024 }).catch((err) => {
       console.error('[youtube-search] yt-dlp error:', err.message);
+      if (err.stderr) console.error('[youtube-search] yt-dlp stderr:', err.stderr);
+      if (err.code) console.error('[youtube-search] yt-dlp error code:', err.code);
       return { stdout: '{}', stderr: err.message };
     });
 
@@ -193,14 +225,22 @@ async function searchYouTubeMusicDetailed(query) {
 }
 
 async function ytDlpExtract(target) {
-  const { stdout } = await execFileAsync(getYtDlpPath(), [
-    target,
-    '-f', 'bestaudio[ext=m4a]/bestaudio',
-    '--no-playlist',
-    '--no-warnings',
-    '-g',
-  ], { timeout: 15000 });
-  return stdout.trim();
+  const ytDlpPath = getYtDlpPath();
+  console.log('[ytDlpExtract] Using yt-dlp at:', ytDlpPath);
+  try {
+    const { stdout } = await execFileAsync(ytDlpPath, [
+      target,
+      '-f', 'bestaudio[ext=m4a]/bestaudio',
+      '--no-playlist',
+      '--no-warnings',
+      '-g',
+    ], { timeout: 30000, maxBuffer: 10 * 1024 * 1024 });
+    console.log('[ytDlpExtract] Success, got URL');
+    return stdout.trim();
+  } catch (err) {
+    console.error('[ytDlpExtract] Failed:', err.message);
+    throw err;
+  }
 }
 
 async function ytDlpSearch(title, artist) {
@@ -340,6 +380,11 @@ const WIDTH = 415;
 const HEIGHT = Math.round(415 * (497 / 306)); // maintain 306:497 aspect ratio
 
 function createWindow() {
+  const preloadPath = isDev
+    ? path.join(__dirname, 'preload.cjs')
+    : path.join(app.getAppPath(), 'electron', 'preload.cjs');
+  console.log('[createWindow] preload path:', preloadPath, '| exists:', fs.existsSync(preloadPath));
+
   const win = new BrowserWindow({
     width: WIDTH,
     height: HEIGHT,
@@ -350,9 +395,10 @@ function createWindow() {
     hasShadow: false,
     icon: path.join(__dirname, '..', 'assets', 'pink', 'favicon.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
+      enableRemoteModule: false,
     },
   });
 
@@ -562,11 +608,14 @@ ipcMain.handle('open-music-folder', async () => {
 });
 
 ipcMain.handle('search-youtube-music', async (_e, query) => {
+  console.log('[IPC] search-youtube-music handler called, query:', query);
   try {
     if (!query || typeof query !== 'string') {
+      console.log('[IPC] search-youtube-music: invalid query, returning []');
       return [];
     }
     const results = await searchYouTubeMusicDetailed(query);
+    console.log('[IPC] search-youtube-music returning', results.length, 'results');
     return results;
   } catch (err) {
     console.error('[youtube-music-search]', err.message);
@@ -581,6 +630,7 @@ app.whenReady().then(() => {
 
   seedUserAudioDirIfMissing().catch((err) => console.warn('[seed]', err.message));
 
+  console.log('[protocol] Registering cupid-local handler');
   protocol.handle('cupid-local', async (request) => {
     try {
       const u = new URL(request.url);
@@ -635,12 +685,15 @@ app.whenReady().then(() => {
     }
   });
 
+  console.log('[protocol] Registering cupid-audio handler');
   protocol.handle('cupid-audio', async (request) => {
     try {
       const id = new URL(request.url).searchParams.get('id');
       if (!id) return new Response('missing id', { status: 400 });
 
+      console.log('[cupid-audio] Resolving stream for video ID:', id);
       const streamUrl = await resolveStreamUrl(id);
+      console.log('[cupid-audio] Got stream URL:', streamUrl ? 'success' : 'failed');
 
       const headers = {
         Origin: 'https://www.youtube.com',
@@ -650,7 +703,9 @@ app.whenReady().then(() => {
       const range = request.headers.get('Range');
       if (range) headers.Range = range;
 
+      console.log('[cupid-audio] Fetching audio from upstream...');
       const upstream = await net.fetch(streamUrl, { headers });
+      console.log('[cupid-audio] Upstream response:', upstream.status);
       const respHeaders = new Headers(upstream.headers);
       respHeaders.set('Content-Type', 'audio/mp4');
       return new Response(upstream.body, {
@@ -659,16 +714,38 @@ app.whenReady().then(() => {
         headers: respHeaders,
       });
     } catch (err) {
-      console.error('[cupid-audio]', err.message);
+      console.error('[cupid-audio] ERROR:', err.message, err.stack);
       return new Response('failed', { status: 502 });
     }
   });
 
   createWindow();
 
+  // Diagnostic: log resolved paths for debugging packaged builds
+  const resolvedYtDlp = getYtDlpPath();
+  console.log('[paths] isDev:', isDev);
+  console.log('[paths] resourcesPath:', process.resourcesPath);
+  console.log('[paths] yt-dlp:', resolvedYtDlp, '| exists:', fs.existsSync(resolvedYtDlp));
+  console.log('[paths] userAudioDir:', userAudioDir());
+  console.log('[paths] PATH:', process.env.PATH);
+
+  // Check if python3 is available (yt-dlp is a python script)
+  execFile('which', ['python3'], (err, stdout) => {
+    if (err) console.error('[python3] NOT FOUND - yt-dlp will not work without python3');
+    else console.log('[python3] found at:', stdout.trim());
+  });
+
   // Pre-warm both engines so the first track load skips cold-start
   getInnertube().catch(() => {});
-  execFile(getYtDlpPath(), ['--version'], () => {});
+  execFile(resolvedYtDlp, ['--version'], (err, stdout, stderr) => {
+    if (err) {
+      console.error('[yt-dlp warmup] error:', err.message);
+      if (stderr) console.error('[yt-dlp warmup] stderr:', stderr);
+      console.error('[yt-dlp warmup] error code:', err.code);
+    } else {
+      console.log('[yt-dlp warmup] version:', stdout.trim());
+    }
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

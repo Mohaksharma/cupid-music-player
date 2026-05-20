@@ -43,10 +43,20 @@
       "electron/**/*",
       "assets/**/*"
     ],
+    "asarUnpack": [
+      "electron/preload.cjs"
+    ],
     "extraResources": [
       {
         "from": "audio",
         "to": "audio",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/yt-dlp-exec/bin",
+        "to": "yt-dlp-bin",
         "filter": [
           "**/*"
         ]
